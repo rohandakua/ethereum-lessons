@@ -1,36 +1,57 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
-import "./aggregator.sol";
-import "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
+import "./priceConverter.sol";
 
 contract fundMe{
-    uint256 public minEth=10000;   // in wei
+    using priceConverter for uint256;
+    uint256 public minUsd=50 * 1e18 ;   // in wei
+
+    //  to make sure only the owner can access the withdraw function
+    address public owner;
+    constructor(){
+        owner = msg.sender;    // this a constructor and it is called first 
+    }
+
+
+    address[] public funders;
+    mapping(address => uint256) public addressToAmountFunded;
+    
     function fund() public payable{
-        require(msg.value>getConversionRate(minEth),"didnot send enough amount");
-        
+        require(msg.value.getConversionRate()>=minUsd,"didnot send enough amount");
+        funders.push(msg.sender);
+        addressToAmountFunded[msg.sender] += msg.value;
     }
-    uint256 minUsd=100 * 1e10;
-    function fundInUsd() public payable{
-        require(getConversionRate(msg.value)>minUsd,"very small");
-    }
-    function getPrice () public view returns(uint256){
-        // needs ABI and Adrress to make contact with other API to fetch data
-        // address - 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419
-        AggregatorV3Interface pricefeed=AggregatorV3Interface(0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419);
-        (,int256 price,,,)=pricefeed.latestRoundData();
-        return(uint256(price*1e10));  // doesnot have decimals in solana
 
+    function withdraw() public checkOwner{
+        // this function does take all the money and withdraw it 
+        for(uint256 i=0;i<funders.length;i++){
+            addressToAmountFunded[funders[i]]=0;
+        }
+        funders=new address[](0);
 
+        // now to originaly transfer the money we can have three calls
+        // // 1. transfer
+        // payable(msg.sender).transfer(address(this).balance);
+        // // this sends the balance to the address and it requires the address to be of payable type 
+        // // and reverts itself
+
+        // // 2. send
+        // bool success=payable(msg.sender).send(address(this).balance);
+        // require(success,"the transaction failed");
+        // // this return boolean data and requires to be reverted 
+
+        // 3. call
+        (bool callSuccess ,) = payable(msg.sender).call{value:address(this).balance}("");
+        // this is  a primitive function and can be used in many type and here it returns two data 
+        // and it takes value as this.balance . needs to be reverted
+        require(callSuccess,"the transaction failed");
     }
-    function getVersion() public view returns (uint256){
-        AggregatorV3Interface pricefeed=AggregatorV3Interface(0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419);
-        return pricefeed.version();
+    modifier checkOwner{    // modifier is a condition for when to check the conditions
+        require(owner==msg.sender,"this is not the owner");
+        _;  // this line states the remaining code and position of this decide where this will run
     }
-    function getConversionRate(uint256 ethAmount)public view returns(uint256 ){
-        uint256 ethPrice=getPrice();
-        uint256 ethAmountInUsd = (ethPrice*ethAmount)/1e18;  // division is because the decimal is not available in solana
-        return ethAmountInUsd;
-    }
+    
+    
 
 
 }
